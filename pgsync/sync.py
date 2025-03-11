@@ -57,6 +57,7 @@ from .utils import (
     threaded,
     Timer,
 )
+from .checkpoint import get_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -84,22 +85,18 @@ class Sync(Base, metaclass=Singleton):
         self.mapping: dict = doc.get("mapping")
         self.mappings: dict = doc.get("mappings")
         self.routing: str = doc.get("routing")
-        super().__init__(
-            doc.get("database", self.index), verbose=verbose, **kwargs
-        )
+        super().__init__(doc.get("database", self.index), verbose=verbose, **kwargs)
         self.search_client: SearchClient = SearchClient()
         self.__name: str = re.sub(
             "[^0-9a-zA-Z_]+", "", f"{self.database.lower()}_{self.index}"
         )
-        self._checkpoint: int = None
+
+        self._checkpoint_impl = get_checkpoint(self.__name)
         self._plugins: Plugins = None
         self._truncate: bool = False
         self.producer = producer
         self.consumer = consumer
         self.num_workers: int = num_workers
-        self._checkpoint_file: str = os.path.join(
-            settings.CHECKPOINT_PATH, f".{self.__name}"
-        )
         self.redis: RedisQueue = RedisQueue(self.__name)
         self.tree: Tree = Tree(self.models, nodes=self.nodes)
         if validate:
@@ -116,9 +113,7 @@ class Sync(Base, metaclass=Singleton):
 
         # ensure v2 compatible schema
         if not isinstance(self.nodes, dict):
-            raise SchemaError(
-                "Incompatible schema. Please run v2 schema migration"
-            )
+            raise SchemaError("Incompatible schema. Please run v2 schema migration")
 
         self.connect()
 
@@ -136,19 +131,14 @@ class Sync(Base, metaclass=Singleton):
 
         wal_level: t.Optional[str] = self.pg_settings("wal_level")
         if not wal_level or wal_level.lower() != "logical":
-            raise RuntimeError(
-                "Enable logical decoding by setting wal_level = logical"
-            )
+            raise RuntimeError("Enable logical decoding by setting wal_level = logical")
 
         self._can_create_replication_slot("_tmp_")
 
         rds_logical_replication: t.Optional[str] = self.pg_settings(
             "rds.logical_replication"
         )
-        if (
-            rds_logical_replication
-            and rds_logical_replication.lower() == "off"
-        ):
+        if rds_logical_replication and rds_logical_replication.lower() == "off":
             raise RDSError("rds.logical_replication is not enabled")
 
         if self.index is None:
@@ -161,18 +151,7 @@ class Sync(Base, metaclass=Singleton):
                 f'Make sure you have run the "bootstrap" command.'
             )
 
-        # ensure the checkpoint dirpath is valid
-        if not os.path.exists(settings.CHECKPOINT_PATH):
-            raise RuntimeError(
-                f"Ensure the checkpoint directory exists "
-                f'"{settings.CHECKPOINT_PATH}" and is readable.'
-            )
-
-        if not os.access(settings.CHECKPOINT_PATH, os.W_OK | os.R_OK):
-            raise RuntimeError(
-                f'Ensure the checkpoint directory "{settings.CHECKPOINT_PATH}"'
-                f" is read/writable"
-            )
+        self._checkpoint_impl.validate()
 
         self.tree.display()
 
@@ -188,9 +167,7 @@ class Sync(Base, metaclass=Singleton):
                     )
 
             if node.schema not in self.schemas:
-                raise InvalidSchemaError(
-                    f"Unknown schema name(s): {node.schema}"
-                )
+                raise InvalidSchemaError(f"Unknown schema name(s): {node.schema}")
 
             # ensure all base tables have at least one primary_key
             for table in node.base_tables:
@@ -236,12 +213,11 @@ class Sync(Base, metaclass=Singleton):
             else:
                 columns = foreign_keys.get(node.name, [])
                 sys.stdout.write(
-                    f'Missing index on table "{node.table}" for columns: '
-                    f"{columns}\n"
+                    f'Missing index on table "{node.table}" for columns: {columns}\n'
                 )
                 query: str = sqlparse.format(
-                    f'CREATE INDEX idx_{node.table}_{"_".join(columns)} ON '
-                    f'{node.table} ({", ".join(columns)})',
+                    f"CREATE INDEX idx_{node.table}_{'_'.join(columns)} ON "
+                    f"{node.table} ({', '.join(columns)})",
                     reindent=True,
                     keyword_case="upper",
                 )
@@ -276,9 +252,7 @@ class Sync(Base, metaclass=Singleton):
             for node in self.tree.traverse_breadth_first():
                 if node.schema != schema:
                     continue
-                tables |= set(
-                    [through.table for through in node.relationship.throughs]
-                )
+                tables |= set([through.table for through in node.relationship.throughs])
                 tables |= set([node.table])
                 # we also need to bootstrap the base tables
                 tables |= set(node.base_tables)
@@ -296,12 +270,8 @@ class Sync(Base, metaclass=Singleton):
                     user_defined_fkey_tables.setdefault(node.table, set())
                     user_defined_fkey_tables[node.table] |= set(columns)
             if tables:
-                self.create_view(
-                    self.index, schema, tables, user_defined_fkey_tables
-                )
-                self.create_triggers(
-                    schema, tables=tables, join_queries=join_queries
-                )
+                self.create_view(self.index, schema, tables, user_defined_fkey_tables)
+                self.create_triggers(schema, tables=tables, join_queries=join_queries)
         self.create_replication_slot(self.__name)
 
     def teardown(self, drop_view: bool = True) -> None:
@@ -309,27 +279,18 @@ class Sync(Base, metaclass=Singleton):
 
         join_queries: bool = settings.JOIN_QUERIES
 
-        try:
-            os.unlink(self._checkpoint_file)
-        except (OSError, FileNotFoundError):
-            logger.warning(
-                f"Checkpoint file not found: {self._checkpoint_file}"
-            )
+        self._checkpoint_impl.teardown()
 
         self.redis.delete()
 
         for schema in self.schemas:
             tables: t.Set = set()
             for node in self.tree.traverse_breadth_first():
-                tables |= set(
-                    [through.table for through in node.relationship.throughs]
-                )
+                tables |= set([through.table for through in node.relationship.throughs])
                 tables |= set([node.table])
                 # we also need to teardown the base tables
                 tables |= set(node.base_tables)
-            self.drop_triggers(
-                schema=schema, tables=tables, join_queries=join_queries
-            )
+            self.drop_triggers(schema=schema, tables=tables, join_queries=join_queries)
             if drop_view:
                 self.drop_view(schema)
                 self.drop_function(schema)
@@ -341,9 +302,7 @@ class Sync(Base, metaclass=Singleton):
         Get the Elasticsearch/OpenSearch doc id from the primary keys.
         """  # noqa D200
         if not primary_keys:
-            raise PrimaryKeyNotFoundError(
-                f"No primary key found on table: {table}"
-            )
+            raise PrimaryKeyNotFoundError(f"No primary key found on table: {table}")
         return f"{PRIMARY_KEY_DELIMITER}".join(map(str, primary_keys))
 
     def logical_slot_changes(
@@ -392,9 +351,7 @@ class Sync(Base, metaclass=Singleton):
 
             rows: list = []
             for row in changes:
-                if re.search(r"^BEGIN", row.data) or re.search(
-                    r"^COMMIT", row.data
-                ):
+                if re.search(r"^BEGIN", row.data) or re.search(r"^COMMIT", row.data):
                     continue
                 rows.append(row)
 
@@ -406,9 +363,7 @@ class Sync(Base, metaclass=Singleton):
                 try:
                     payload: Payload = self.parse_logical_slot(row.data)
                 except Exception as e:
-                    logger.exception(
-                        f"Error parsing row: {e}\nRow data: {row.data}"
-                    )
+                    logger.exception(f"Error parsing row: {e}\nRow data: {row.data}")
                     raise
 
                 # filter out unknown schemas
@@ -420,9 +375,7 @@ class Sync(Base, metaclass=Singleton):
                 j: int = i + 1
                 if j < len(rows):
                     try:
-                        payload2: Payload = self.parse_logical_slot(
-                            rows[j].data
-                        )
+                        payload2: Payload = self.parse_logical_slot(rows[j].data)
                     except Exception as e:
                         logger.exception(
                             f"Error parsing row: {e}\nRow data: {rows[j].data}"
@@ -433,14 +386,10 @@ class Sync(Base, metaclass=Singleton):
                         payload.tg_op != payload2.tg_op
                         or payload.table != payload2.table
                     ):
-                        self.search_client.bulk(
-                            self.index, self._payloads(payloads)
-                        )
+                        self.search_client.bulk(self.index, self._payloads(payloads))
                         payloads: list = []
                 elif j == len(rows):
-                    self.search_client.bulk(
-                        self.index, self._payloads(payloads)
-                    )
+                    self.search_client.bulk(self.index, self._payloads(payloads))
                     payloads: list = []
             self.logical_slot_get_changes(
                 self.__name,
@@ -455,17 +404,11 @@ class Sync(Base, metaclass=Singleton):
         self, node: Node, payload: Payload, filters: list
     ) -> list:
         fields: dict = defaultdict(list)
-        primary_values: list = [
-            payload.data[key] for key in node.model.primary_keys
-        ]
-        primary_fields: dict = dict(
-            zip(node.model.primary_keys, primary_values)
-        )
+        primary_values: list = [payload.data[key] for key in node.model.primary_keys]
+        primary_fields: dict = dict(zip(node.model.primary_keys, primary_values))
         for key, value in primary_fields.items():
             fields[key].append(value)
-        for doc_id in self.search_client._search(
-            self.index, node.table, fields
-        ):
+        for doc_id in self.search_client._search(self.index, node.table, fields):
             where: dict = {}
             params: dict = doc_id.split(PRIMARY_KEY_DELIMITER)
             for i, key in enumerate(self.tree.root.model.primary_keys):
@@ -490,9 +433,7 @@ class Sync(Base, metaclass=Singleton):
         our insert/update operation and sync the tree branch for that root.
         """
         fields: dict = defaultdict(list)
-        foreign_values: list = [
-            payload.new.get(key) for key in foreign_keys[node.name]
-        ]
+        foreign_values: list = [payload.new.get(key) for key in foreign_keys[node.name]]
         for key in [key.name for key in node.primary_keys]:
             for value in foreign_values:
                 if value:
@@ -529,15 +470,12 @@ class Sync(Base, metaclass=Singleton):
             )
         return filters
 
-    def _insert_op(
-        self, node: Node, filters: dict, payloads: t.List[Payload]
-    ) -> dict:
+    def _insert_op(self, node: Node, filters: dict, payloads: t.List[Payload]) -> dict:
         if node.table in self.tree.tables:
             if node.is_root:
                 for payload in payloads:
                     primary_values = [
-                        payload.data[key]
-                        for key in self.tree.root.model.primary_keys
+                        payload.data[key] for key in self.tree.root.model.primary_keys
                     ]
                     primary_fields = dict(
                         zip(self.tree.root.model.primary_keys, primary_values)
@@ -548,9 +486,7 @@ class Sync(Base, metaclass=Singleton):
 
             else:
                 if not node.parent:
-                    logger.exception(
-                        f"Could not get parent from node: {node.name}"
-                    )
+                    logger.exception(f"Could not get parent from node: {node.name}")
                     raise
 
                 try:
@@ -578,9 +514,7 @@ class Sync(Base, metaclass=Singleton):
                     )
 
                     # also check through table with a direct references to root
-                    _filters = self._through_node_resolver(
-                        node, payload, _filters
-                    )
+                    _filters = self._through_node_resolver(node, payload, _filters)
 
                 if _filters:
                     filters[self.tree.root.table].extend(_filters)
@@ -632,18 +566,12 @@ class Sync(Base, metaclass=Singleton):
                         old_values.append(payload.old[key])
 
                 new_values = [
-                    payload.new[key]
-                    for key in self.tree.root.model.primary_keys
+                    payload.new[key] for key in self.tree.root.model.primary_keys
                 ]
 
-                if (
-                    len(old_values) == len(new_values)
-                    and old_values != new_values
-                ):
+                if len(old_values) == len(new_values) and old_values != new_values:
                     doc: dict = {
-                        "_id": self.get_doc_id(
-                            old_values, self.tree.root.table
-                        ),
+                        "_id": self.get_doc_id(old_values, self.tree.root.table),
                         "_index": self.index,
                         "_op_type": "delete",
                     }
@@ -663,9 +591,7 @@ class Sync(Base, metaclass=Singleton):
             # update the child tables
             for payload in payloads:
                 _filters: list = []
-                _filters = self._root_primary_key_resolver(
-                    node, payload, _filters
-                )
+                _filters = self._root_primary_key_resolver(node, payload, _filters)
                 # also handle foreign_keys
                 if node.parent:
                     try:
@@ -688,22 +614,17 @@ class Sync(Base, metaclass=Singleton):
 
         return filters
 
-    def _delete_op(
-        self, node: Node, filters: dict, payloads: t.List[dict]
-    ) -> dict:
+    def _delete_op(self, node: Node, filters: dict, payloads: t.List[dict]) -> dict:
         # when deleting a root node, just delete the doc in
         # Elasticsearch/OpenSearch
         if node.is_root:
             docs: list = []
             for payload in payloads:
                 primary_values: list = [
-                    payload.data[key]
-                    for key in self.tree.root.model.primary_keys
+                    payload.data[key] for key in self.tree.root.model.primary_keys
                 ]
                 doc: dict = {
-                    "_id": self.get_doc_id(
-                        primary_values, self.tree.root.table
-                    ),
+                    "_id": self.get_doc_id(primary_values, self.tree.root.table),
                     "_index": self.index,
                     "_op_type": "delete",
                 }
@@ -719,9 +640,7 @@ class Sync(Base, metaclass=Singleton):
                 raise_on_exception: t.Optional[bool] = (
                     False if settings.USE_ASYNC else None
                 )
-                raise_on_error: t.Optional[bool] = (
-                    False if settings.USE_ASYNC else None
-                )
+                raise_on_error: t.Optional[bool] = False if settings.USE_ASYNC else None
                 self.search_client.bulk(
                     self.index,
                     docs,
@@ -735,9 +654,7 @@ class Sync(Base, metaclass=Singleton):
             # re-sync the child tables
             for payload in payloads:
                 _filters: list = []
-                _filters = self._root_primary_key_resolver(
-                    node, payload, _filters
-                )
+                _filters = self._root_primary_key_resolver(node, payload, _filters)
                 if _filters:
                     filters[self.tree.root.table].extend(_filters)
 
@@ -826,9 +743,7 @@ class Sync(Base, metaclass=Singleton):
         for payload in payloads:
             # this is only required for the non truncate tg_ops
             if payload.data:
-                if not set(node.model.primary_keys).issubset(
-                    set(payload.data.keys())
-                ):
+                if not set(node.model.primary_keys).issubset(set(payload.data.keys())):
                     logger.exception(
                         f"Primary keys {node.model.primary_keys} not subset "
                         f"of payload data {payload.data.keys()} for table "
@@ -983,9 +898,7 @@ class Sync(Base, metaclass=Singleton):
                 row[META] = Transform.get_primary_keys(keys)
 
                 if node.is_root:
-                    primary_key_values: t.List[str] = list(
-                        map(str, primary_keys)
-                    )
+                    primary_key_values: t.List[str] = list(map(str, primary_keys))
                     primary_key_names: t.List[str] = [
                         primary_key.name for primary_key in node.primary_keys
                     ]
@@ -995,7 +908,7 @@ class Sync(Base, metaclass=Singleton):
                     }
 
                 if self.verbose:
-                    print(f"{(i+1)})")
+                    print(f"{(i + 1)})")
                     print(f"pkeys: {primary_keys}")
                     pprint.pprint(row)
                     print("-" * 10)
@@ -1033,10 +946,7 @@ class Sync(Base, metaclass=Singleton):
         :return: The current checkpoint value.
         :rtype: int
         """
-        if os.path.exists(self._checkpoint_file):
-            with open(self._checkpoint_file, "r") as fp:
-                self._checkpoint: int = int(fp.read().split()[0])
-        return self._checkpoint
+        return self._checkpoint_impl.get_value()
 
     @checkpoint.setter
     def checkpoint(self, value: t.Optional[str] = None) -> None:
@@ -1047,11 +957,7 @@ class Sync(Base, metaclass=Singleton):
         :type value: Optional[str]
         :raises ValueError: If the value is None.
         """
-        if value is None:
-            raise ValueError("Cannot assign a None value to checkpoint")
-        with open(self._checkpoint_file, "w+") as fp:
-            fp.write(f"{value}\n")
-        self._checkpoint: int = value
+        self._checkpoint_impl.set_value(value)
 
     def _poll_redis(self) -> None:
         payloads: list = self.redis.pop()
@@ -1059,9 +965,7 @@ class Sync(Base, metaclass=Singleton):
             logger.debug(f"_poll_redis: {payloads}")
             self.count["redis"] += len(payloads)
             self.refresh_views()
-            self.on_publish(
-                list(map(lambda payload: Payload(**payload), payloads))
-            )
+            self.on_publish(list(map(lambda payload: Payload(**payload), payloads)))
         time.sleep(settings.REDIS_POLL_INTERVAL)
 
     @threaded
@@ -1100,9 +1004,7 @@ class Sync(Base, metaclass=Singleton):
         conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
         cursor = conn.cursor()
         cursor.execute(f'LISTEN "{self.database}"')
-        logger.debug(
-            f'Listening to notifications on channel "{self.database}"'
-        )
+        logger.debug(f'Listening to notifications on channel "{self.database}"')
         payloads: list = []
 
         while True:
@@ -1224,14 +1126,10 @@ class Sync(Base, metaclass=Singleton):
                         payload.tg_op != payload2.tg_op
                         or payload.table != payload2.table
                     ):
-                        self.search_client.bulk(
-                            self.index, self._payloads(_payloads)
-                        )
+                        self.search_client.bulk(self.index, self._payloads(_payloads))
                         _payloads = []
                 elif j == len(payloads):
-                    self.search_client.bulk(
-                        self.index, self._payloads(_payloads)
-                    )
+                    self.search_client.bulk(self.index, self._payloads(_payloads))
                     _payloads: list = []
 
         txids: t.Set = set(map(lambda x: x.xmin, payloads))
@@ -1249,9 +1147,7 @@ class Sync(Base, metaclass=Singleton):
 
         logger.debug(f"pull txmin: {txmin} - txmax: {txmax}")
         # forward pass sync
-        self.search_client.bulk(
-            self.index, self.sync(txmin=txmin, txmax=txmax)
-        )
+        self.search_client.bulk(self.index, self.sync(txmin=txmin, txmax=txmax))
         # now sync up to txmax to capture everything we may have missed
         self.logical_slot_changes(
             txmin=txmin,
@@ -1474,9 +1370,7 @@ def main(
             type=str,
             hide_input=True,
         )
-    kwargs: dict = {
-        key: value for key, value in kwargs.items() if value is not None
-    }
+    kwargs: dict = {key: value for key, value in kwargs.items() if value is not None}
 
     config: str = get_config(config)
 

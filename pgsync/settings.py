@@ -21,6 +21,7 @@ env.read_env(path=os.path.join(os.getcwd(), ".env"))
 # page block size
 BLOCK_SIZE = env.int("BLOCK_SIZE", default=2048 * 10)
 CHECKPOINT_PATH = env.str("CHECKPOINT_PATH", default="./")
+CHECKPOINT_IMPL = env.str("CHECKPOINT_IMPL", default="CHECKPOINT_FILE")
 JOIN_QUERIES = env.bool("JOIN_QUERIES", default=True)
 # batch size for LOGICAL_SLOT_CHANGES for minimizing tmp file disk usage
 LOGICAL_SLOT_CHUNK_SIZE = env.int("LOGICAL_SLOT_CHUNK_SIZE", default=5000)
@@ -67,14 +68,10 @@ ELASTICSEARCH_HOST = env.str("ELASTICSEARCH_HOST", default="localhost")
 ELASTICSEARCH_HTTP_AUTH = env.list("ELASTICSEARCH_HTTP_AUTH", default=[])
 if ELASTICSEARCH_HTTP_AUTH:
     ELASTICSEARCH_HTTP_AUTH = tuple(ELASTICSEARCH_HTTP_AUTH)
-ELASTICSEARCH_HTTP_COMPRESS = env.bool(
-    "ELASTICSEARCH_HTTP_COMPRESS", default=True
-)
+ELASTICSEARCH_HTTP_COMPRESS = env.bool("ELASTICSEARCH_HTTP_COMPRESS", default=True)
 # number of seconds we should wait before the first retry.
 # Any subsequent retries will be powers of initial_backoff * 2**retry_number
-ELASTICSEARCH_INITIAL_BACKOFF = env.float(
-    "ELASTICSEARCH_INITIAL_BACKOFF", default=2
-)
+ELASTICSEARCH_INITIAL_BACKOFF = env.float("ELASTICSEARCH_INITIAL_BACKOFF", default=2)
 # maximum number of seconds a retry will wait
 ELASTICSEARCH_MAX_BACKOFF = env.float("ELASTICSEARCH_MAX_BACKOFF", default=600)
 # the maximum size of the request in bytes (default: 100MB)
@@ -91,9 +88,7 @@ ELASTICSEARCH_PORT = env.int("ELASTICSEARCH_PORT", default=9200)
 # the size of the task queue between the main thread
 # (producing chunks to send) and the processing threads.
 ELASTICSEARCH_QUEUE_SIZE = env.int("ELASTICSEARCH_QUEUE_SIZE", default=4)
-ELASTICSEARCH_RAISE_ON_ERROR = env.bool(
-    "ELASTICSEARCH_RAISE_ON_ERROR", default=True
-)
+ELASTICSEARCH_RAISE_ON_ERROR = env.bool("ELASTICSEARCH_RAISE_ON_ERROR", default=True)
 # if ``False`` then don't propagate exceptions from call to elasticsearch bulk
 ELASTICSEARCH_RAISE_ON_EXCEPTION = env.bool(
     "ELASTICSEARCH_RAISE_ON_EXCEPTION", default=True
@@ -112,9 +107,7 @@ ELASTICSEARCH_SSL_SHOW_WARN = env.bool(
     default=False,
 )
 ELASTICSEARCH_SSL_VERSION = env.int("ELASTICSEARCH_SSL_VERSION", default=None)
-ELASTICSEARCH_STREAMING_BULK = env.bool(
-    "ELASTICSEARCH_STREAMING_BULK", default=False
-)
+ELASTICSEARCH_STREAMING_BULK = env.bool("ELASTICSEARCH_STREAMING_BULK", default=False)
 # the size of the threadpool to use for the bulk requests
 ELASTICSEARCH_THREAD_COUNT = env.int("ELASTICSEARCH_THREAD_COUNT", default=4)
 # increase this if you are getting read request timeouts
@@ -122,20 +115,14 @@ ELASTICSEARCH_TIMEOUT = env.float("ELASTICSEARCH_TIMEOUT", default=10)
 ELASTICSEARCH_USER = env.str("ELASTICSEARCH_USER", default=None)
 # turn on SSL
 ELASTICSEARCH_USE_SSL = env.bool("ELASTICSEARCH_USE_SSL", default=False)
-ELASTICSEARCH_VERIFY_CERTS = env.bool(
-    "ELASTICSEARCH_VERIFY_CERTS", default=True
-)
+ELASTICSEARCH_VERIFY_CERTS = env.bool("ELASTICSEARCH_VERIFY_CERTS", default=True)
 
 # when using multiple threads for poll_db we need to account for other
 # threads performing deletions.
-ELASTICSEARCH_IGNORE_STATUS = env.list(
-    "ELASTICSEARCH_IGNORE_STATUS", default=[404]
-)
+ELASTICSEARCH_IGNORE_STATUS = env.list("ELASTICSEARCH_IGNORE_STATUS", default=[404])
 ELASTICSEARCH_IGNORE_STATUS = tuple(map(int, ELASTICSEARCH_IGNORE_STATUS))
 
-if env.bool("ELASTICSEARCH", default=None) and env.bool(
-    "OPENSEARCH", default=None
-):
+if env.bool("ELASTICSEARCH", default=None) and env.bool("OPENSEARCH", default=None):
     raise ValueError("Cannot set both ELASTICSEARCH and OPENSEARCH to True")
 
 ELASTICSEARCH = env.bool("ELASTICSEARCH", default=True)
@@ -147,9 +134,7 @@ elif ELASTICSEARCH:
     OPENSEARCH = False
 
 OPENSEARCH_AWS_HOSTED = env.bool("OPENSEARCH_AWS_HOSTED", default=False)
-OPENSEARCH_AWS_SERVERLESS = env.bool(
-    "OPENSEARCH_AWS_SERVERLESS", default=False
-)
+OPENSEARCH_AWS_SERVERLESS = env.bool("OPENSEARCH_AWS_SERVERLESS", default=False)
 
 # Postgres:
 PG_HOST = env.str("PG_HOST", default="localhost")
