@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """The setup script."""
+
 import os
 import re
 
@@ -59,7 +60,7 @@ PACKAGES = find_packages(include=["pgsync"])
 with open("README.rst") as fp:
     README = fp.read()
 
-with open("requirements/base.txt") as fp:
+with open("requirements/base.in") as fp:
     INSTALL_REQUIRES = fp.read()
 
 setup(
