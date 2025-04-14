@@ -20,6 +20,7 @@ from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
 from . import __version__, settings
 from .base import Base, Payload
+from .checkpoint import get_checkpoint
 from .constants import (
     DELETE,
     INSERT,
@@ -91,15 +92,13 @@ class Sync(Base, metaclass=Singleton):
         self.__name: str = re.sub(
             "[^0-9a-zA-Z_]+", "", f"{self.database.lower()}_{self.index}"
         )
-        self._checkpoint: int = None
+
+        self._checkpoint = get_checkpoint(self.__name)
         self._plugins: Plugins = None
         self._truncate: bool = False
         self.producer = producer
         self.consumer = consumer
         self.num_workers: int = num_workers
-        self._checkpoint_file: str = os.path.join(
-            settings.CHECKPOINT_PATH, f".{self.__name}"
-        )
         self.redis: RedisQueue = RedisQueue(self.__name)
         self.tree: Tree = Tree(self.models, nodes=self.nodes)
         if validate:
@@ -161,18 +160,7 @@ class Sync(Base, metaclass=Singleton):
                 f'Make sure you have run the "bootstrap" command.'
             )
 
-        # ensure the checkpoint dirpath is valid
-        if not os.path.exists(settings.CHECKPOINT_PATH):
-            raise RuntimeError(
-                f"Ensure the checkpoint directory exists "
-                f'"{settings.CHECKPOINT_PATH}" and is readable.'
-            )
-
-        if not os.access(settings.CHECKPOINT_PATH, os.W_OK | os.R_OK):
-            raise RuntimeError(
-                f'Ensure the checkpoint directory "{settings.CHECKPOINT_PATH}"'
-                f" is read/writable"
-            )
+        self._checkpoint.validate()
 
         self.tree.display()
 
@@ -309,13 +297,7 @@ class Sync(Base, metaclass=Singleton):
 
         join_queries: bool = settings.JOIN_QUERIES
 
-        try:
-            os.unlink(self._checkpoint_file)
-        except (OSError, FileNotFoundError):
-            logger.warning(
-                f"Checkpoint file not found: {self._checkpoint_file}"
-            )
-
+        self._checkpoint.teardown()
         self.redis.delete()
 
         for schema in self.schemas:
@@ -1033,10 +1015,7 @@ class Sync(Base, metaclass=Singleton):
         :return: The current checkpoint value.
         :rtype: int
         """
-        if os.path.exists(self._checkpoint_file):
-            with open(self._checkpoint_file, "r") as fp:
-                self._checkpoint: int = int(fp.read().split()[0])
-        return self._checkpoint
+        return self._checkpoint.get_value()
 
     @checkpoint.setter
     def checkpoint(self, value: t.Optional[str] = None) -> None:
@@ -1047,11 +1026,7 @@ class Sync(Base, metaclass=Singleton):
         :type value: Optional[str]
         :raises ValueError: If the value is None.
         """
-        if value is None:
-            raise ValueError("Cannot assign a None value to checkpoint")
-        with open(self._checkpoint_file, "w+") as fp:
-            fp.write(f"{value}\n")
-        self._checkpoint: int = value
+        self._checkpoint.set_value(value)
 
     def _poll_redis(self) -> None:
         payloads: list = self.redis.pop()

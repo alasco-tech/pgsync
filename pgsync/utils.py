@@ -117,7 +117,9 @@ def show_settings(schema: t.Optional[str] = None) -> None:
     logger.info(f'{"Schema":<10s}: {schema or settings.SCHEMA}')
     logger.info("-" * 65)
     logger.info(f"{HIGHLIGHT_BEGIN}Checkpoint{HIGHLIGHT_END}")
-    logger.info(f"Path: {settings.CHECKPOINT_PATH}")
+    logger.info(f"Impl: {settings.CHECKPOINT_IMPL}")
+    logger.info(f"Filesystem path: {settings.CHECKPOINT_PATH}")
+    logger.info(f"Redis namespace: {settings.CHECKPOINT_REDIS_NAMESPACE}")
     logger.info(f"{HIGHLIGHT_BEGIN}Postgres{HIGHLIGHT_END}")
     result: ParseResult = get_redacted_url(
         urlparse(get_postgres_url("postgres"))
