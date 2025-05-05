@@ -34,7 +34,7 @@ from .settings import (
 from .trigger import CREATE_TRIGGER_TEMPLATE
 from .urls import get_postgres_url
 from .utils import compiled_query
-from .view import create_view, DropView, is_view, RefreshView
+from .view import DropView, RefreshView, create_view, is_view
 
 try:
     import citext  # noqa
@@ -48,15 +48,6 @@ except ImportError:
 
 
 logger = logging.getLogger(__name__)
-
-SSL_MODES = (
-    "allow",
-    "disable",
-    "prefer",
-    "require",
-    "verify-ca",
-    "verify-full",
-)
 
 
 class Payload(object):
@@ -1022,17 +1013,9 @@ def _pg_engine(
     sslrootcert = sslrootcert or PG_SSLROOTCERT
 
     if sslmode:
-        if sslmode not in SSL_MODES:
-            raise ValueError(f'Invalid sslmode: "{sslmode}"')
         connect_args["sslmode"] = sslmode
 
     if sslrootcert:
-        if not os.path.exists(sslrootcert):
-            raise IOError(
-                f'"{sslrootcert}" not found.\n'
-                f"Provide a valid file containing SSL certificate "
-                f"authority (CA) certificate(s)."
-            )
         connect_args["sslrootcert"] = sslrootcert
 
     url: str = get_postgres_url(
