@@ -72,7 +72,10 @@ class RedisCheckpoint:
         namespace = settings.CHECKPOINT_REDIS_NAMESPACE
         self._key = f"{namespace}:{name}"
         self._redis = Redis.from_url(
-            url=url, socket_timeout=settings.REDIS_SOCKET_TIMEOUT, decode_responses=True
+            url=url,
+            socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+            decode_components=True,
+            decode_responses=True,
         )
 
     def validate(self) -> None:

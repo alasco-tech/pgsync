@@ -23,6 +23,7 @@ class RedisQueue(object):
         try:
             self.__db: Redis = Redis.from_url(
                 url,
+                decode_components=True,
                 socket_timeout=REDIS_SOCKET_TIMEOUT,
             )
             self.__db.ping()
