@@ -84,6 +84,9 @@ class SearchClient(object):
         """Close transport connection."""
         self.__client.transport.close()
 
+    def exists(self, index: str) -> bool:
+        return self.__client.indices.exists(index)
+
     def teardown(self, index: str) -> None:
         """
         Teardown the Elasticsearch/OpenSearch index.
@@ -270,7 +273,7 @@ class SearchClient(object):
         """Create Elasticsearch/OpenSearch setting and mapping if required."""
         body: dict = defaultdict(lambda: defaultdict(dict))
 
-        if not self.__client.indices.exists(index=index):
+        if not self.exists(index=index):
             if setting:
                 body.update(**{"settings": {"index": setting}})
             if mappings:

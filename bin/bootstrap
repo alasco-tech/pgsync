@@ -35,6 +35,13 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Turn on verbosity",
 )
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Force creation of triggers and replication slots",
+)
 def main(
     teardown: bool,
     config: str,
@@ -43,6 +50,7 @@ def main(
     host: str,
     port: int,
     verbose: bool,
+    force: bool,
 ) -> None:
     """Application onetime Bootstrap."""
     kwargs: dict = {
@@ -75,8 +83,12 @@ def main(
         if teardown:
             sync.teardown()
             continue
-        sync.setup()
-        logger.info(f"Bootstrap: {sync.database}")
+
+        if force or sync.bootstrap_required:
+            sync.setup()
+            logger.info(f"Bootstrap: {sync.database}")
+        else:
+            logger.info(f"Index {sync.index} exists. Skipping bootstrap.")
 
 
 if __name__ == "__main__":
