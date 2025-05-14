@@ -159,7 +159,7 @@ PG_PASSWORD = env.str("PG_PASSWORD", default=None)
 PG_PORT = env.int("PG_PORT", default=5432)
 PG_SSLMODE = env.str("PG_SSLMODE", default=None)
 PG_SSLROOTCERT = env.str("PG_SSLROOTCERT", default=None)
-PG_USER = env.str("PG_USER")
+PG_USER = env.str("PG_USER", default="postgres")
 
 # Redis:
 REDIS_AUTH = env.str("REDIS_AUTH", default=None)
