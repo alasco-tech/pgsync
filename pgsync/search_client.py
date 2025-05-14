@@ -27,50 +27,57 @@ logger = logging.getLogger(__name__)
 class SearchClient(object):
     """SearchClient."""
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        client: t.Union[
+            opensearchpy.OpenSearch, elasticsearch.Elasticsearch, None
+        ] = None,
+    ):
         """
         Return an Elasticsearch/OpenSearch client.
 
         The default connection parameters are:
         host = 'localhost', port = 9200
         """
-        url: str = get_search_url()
-        self.is_opensearch: bool = False
-        self.major_version: int = 0
-        if settings.ELASTICSEARCH:
-            self.name = "Elasticsearch"
+
+        if client is not None:
+            self.__client = client
+        elif settings.ELASTICSEARCH:
             self.__client: elasticsearch.Elasticsearch = get_search_client(
-                url,
+                get_search_url(),
                 client=elasticsearch.Elasticsearch,
                 node_class=elastic_transport.RequestsHttpNode,
             )
+        elif settings.OPENSEARCH:
+            self.__client: opensearchpy.OpenSearch = get_search_client(
+                get_search_url(),
+                client=opensearchpy.OpenSearch,
+                connection_class=opensearchpy.RequestsHttpConnection,
+            )
+
+        if isinstance(self.__client, elasticsearch.Elasticsearch):
+            self.name = "Elasticsearch"
+            self.is_opensearch: bool = False
             try:
                 self.major_version: int = int(
                     self.__client.info()["version"]["number"].split(".")[0]
                 )
             except (IndexError, KeyError, ValueError):
+                self.major_version = 0
                 pass
-            self.streaming_bulk: t.Callable = (
-                elasticsearch.helpers.streaming_bulk
-            )
-            self.parallel_bulk: t.Callable = (
-                elasticsearch.helpers.parallel_bulk
-            )
+            self.streaming_bulk: t.Callable = elasticsearch.helpers.streaming_bulk
+            self.parallel_bulk: t.Callable = elasticsearch.helpers.parallel_bulk
             self.Search: t.Callable = elasticsearch_dsl.Search
             self.Bool: t.Callable = elasticsearch_dsl.query.Bool
             self.Q: t.Callable = elasticsearch_dsl.Q
 
-        elif settings.OPENSEARCH:
+        elif isinstance(self.__client, opensearchpy.OpenSearch):
             self.is_opensearch = True
+            self.major_version: int = 0
             self.name = "OpenSearch"
-            self.__client: opensearchpy.OpenSearch = get_search_client(
-                url,
-                client=opensearchpy.OpenSearch,
-                connection_class=opensearchpy.RequestsHttpConnection,
-            )
-            self.streaming_bulk: t.Callable = (
-                opensearchpy.helpers.streaming_bulk
-            )
+
+            self.streaming_bulk: t.Callable = opensearchpy.helpers.streaming_bulk
             self.parallel_bulk: t.Callable = opensearchpy.helpers.parallel_bulk
             self.Search: t.Callable = opensearch_dsl.Search
             self.Bool: t.Callable = opensearch_dsl.query.Bool
