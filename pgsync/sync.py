@@ -13,6 +13,9 @@ import typing as t
 from collections import defaultdict
 
 import click
+import elasticsearch
+import opensearchpy
+import redis
 import sqlalchemy as sa
 import sqlparse
 from psycopg2 import OperationalError
@@ -74,6 +77,12 @@ class Sync(Base, metaclass=Singleton):
         num_workers: int = 1,
         producer: bool = True,
         consumer: bool = True,
+        *,
+        search_client: t.Union[
+            opensearchpy.OpenSearch, elasticsearch.Elasticsearch, None
+        ] = None,
+        redis: t.Optional[redis.Redis] = None,
+        db_engine: t.Optional[sa.engine.Engine] = None,
         **kwargs,
     ) -> None:
         """Constructor."""
@@ -86,20 +95,20 @@ class Sync(Base, metaclass=Singleton):
         self.mappings: dict = doc.get("mappings")
         self.routing: str = doc.get("routing")
         super().__init__(
-            doc.get("database", self.index), verbose=verbose, **kwargs
+            doc.get("database", self.index), verbose=verbose, engine=db_engine, **kwargs
         )
-        self.search_client: SearchClient = SearchClient()
+        self.search_client: SearchClient = SearchClient(client=search_client)
         self.__name: str = re.sub(
             "[^0-9a-zA-Z_]+", "", f"{self.database.lower()}_{self.index}"
         )
 
-        self._checkpoint = get_checkpoint(self.__name)
+        self._checkpoint = get_checkpoint(self.__name, redis=redis)
         self._plugins: Plugins = None
         self._truncate: bool = False
         self.producer = producer
         self.consumer = consumer
         self.num_workers: int = num_workers
-        self.redis: RedisQueue = RedisQueue(self.__name)
+        self.redis: RedisQueue = RedisQueue(self.__name, redis=redis)
         self.tree: Tree = Tree(self.models, nodes=self.nodes)
         if validate:
             self.validate(repl_slots=repl_slots)
