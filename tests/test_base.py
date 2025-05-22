@@ -38,34 +38,20 @@ class TestBase(object):
     def test__can_create_replication_slot(self, mock_logger, connection):
         pg_base = Base(connection.engine.url.database)
 
-        pg_base.create_replication_slot("foo")
-        with patch("pgsync.base.Base.drop_replication_slot") as mock_slot:
-            with patch("pgsync.base.Base.create_replication_slot"):
-                pg_base._can_create_replication_slot("foo")
-                mock_logger.exception.assert_called_once_with(
-                    "Replication slot foo already exists"
-                )
-        assert mock_slot.call_args_list == [
-            call("foo"),
-            call("foo"),
-        ]
+        # Patch the engine.connect context manager
+        with patch.object(pg_base.engine, "connect") as mock_connect:
+            mock_conn = mock_connect.return_value.__enter__.return_value
 
-        with patch("pgsync.base.Base.drop_replication_slot") as mock_slot:
-            pg_base._can_create_replication_slot("bar")
-            mock_slot.assert_called_once_with("bar")
+            # Case 1: User has REPLICATION privilege
+            mock_conn.execute.return_value.scalar.return_value = True
+            # Should not raise
+            pg_base._can_create_replication_slot()
 
-        with patch(
-            "pgsync.base.Base.create_replication_slot", side_effect=Exception
-        ) as mock_slot:
+            # Case 2: User does NOT have REPLICATION privilege
+            mock_conn.execute.return_value.scalar.return_value = True
             with pytest.raises(ReplicationSlotError) as excinfo:
-                pg_base._can_create_replication_slot("barx")
-            mock_slot.assert_called_once_with("barx")
-            msg = (
-                f'PG_USER "{pg_base.engine.url.username}" needs to be '
-                f"superuser or have permission to read, create and destroy "
-                f"replication slots to perform this action."
-            )
-            assert msg in str(excinfo.value)
+                pg_base._can_create_replication_slot()
+            assert "does not have REPLICATION privileges" in str(excinfo.value)
 
     def test_model(self, connection):
         pg_base = Base(connection.engine.url.database)
