@@ -213,24 +213,31 @@ class Base(object):
         except (TypeError, IndexError):
             return None
 
-    def _can_create_replication_slot(self, slot_name: str) -> None:
-        """Check if the given user can create and destroy replication slots."""
-        if self.replication_slots(slot_name):
-            logger.exception(f"Replication slot {slot_name} already exists")
-            self.drop_replication_slot(slot_name)
+    def _can_create_replication_slot(self) -> None:
+        """Check if the current PostgreSQL user has privileges to manage replication slots."""
+        user = self.engine.url.username
 
         try:
-            self.create_replication_slot(slot_name)
+            with self.engine.connect() as conn:
+                result = conn.execute(
+                    sa.text(
+                        "SELECT rolreplication FROM pg_roles WHERE rolname = current_user"
+                    )
+                ).scalar()
+
+                if not result:
+                    raise ReplicationSlotError(
+                        f'PG_USER "{user}" does not have REPLICATION privileges. '
+                        f"This is required to create and drop replication slots."
+                    )
 
         except Exception as e:
-            logger.exception(f"{e}")
-            raise ReplicationSlotError(
-                f'PG_USER "{self.engine.url.username}" needs to be '
-                f"superuser or have permission to read, create and destroy "
-                f"replication slots to perform this action.\n{e}"
+            logger.exception(
+                f"Error checking replication privileges for user {user}: {e}"
             )
-        else:
-            self.drop_replication_slot(slot_name)
+            raise ReplicationSlotError(
+                f'Failed to verify replication privileges for user "{user}".\n{e}'
+            )
 
     # Tables...
     def models(self, table: str, schema: str) -> sa.sql.Alias:
