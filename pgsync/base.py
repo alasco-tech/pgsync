@@ -172,14 +172,9 @@ class Base(object):
         "varchar",
     )
 
-    def __init__(
-        self, database: str, verbose: bool = False, *args, **kwargs
-    ) -> None:
+    def __init__(self, database: str, verbose: bool = False, *args, **kwargs) -> None:
         """Initialize the base class constructor."""
-        self.__engine: sa.engine.Engine = _pg_engine(
-            database, echo=False, **kwargs
-        )
-        self.__schemas: t.Optional[dict] = None
+        self.__engine: sa.engine.Engine = _pg_engine(database, echo=False, **kwargs)
         # models is a dict of f'{schema}.{table}'
         self.__models: dict = {}
         self.__metadata: dict = {}
@@ -299,16 +294,6 @@ class Base(object):
     def engine(self) -> sa.engine.Engine:
         """Get the database engine."""
         return self.__engine
-
-    @property
-    def schemas(self) -> dict:
-        """Get the database schema names."""
-        if self.__schemas is None:
-            self.__schemas = sa.inspect(self.engine).get_schema_names()
-            for schema in BUILTIN_SCHEMAS:
-                if schema in self.__schemas:
-                    self.__schemas.remove(schema)
-        return self.__schemas
 
     def views(self, schema: str) -> list:
         """Get all materialized and non-materialized views."""
