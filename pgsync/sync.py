@@ -135,19 +135,12 @@ class Sync(Base, metaclass=Singleton):
 
         wal_level: t.Optional[str] = self.pg_settings("wal_level")
         if not wal_level or wal_level.lower() != "logical":
-            raise RuntimeError(
-                "Enable logical decoding by setting wal_level = logical"
-            )
-
-        self._can_create_replication_slot()
+            raise RuntimeError("Enable logical decoding by setting wal_level = logical")
 
         rds_logical_replication: t.Optional[str] = self.pg_settings(
             "rds.logical_replication"
         )
-        if (
-            rds_logical_replication
-            and rds_logical_replication.lower() == "off"
-        ):
+        if rds_logical_replication and rds_logical_replication.lower() == "off":
             raise RDSError("rds.logical_replication is not enabled")
 
         if self.index is None:
