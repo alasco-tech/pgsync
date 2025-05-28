@@ -175,10 +175,8 @@ class Sync(Base, metaclass=Singleton):
                         f"{MATERIALIZED_VIEW}. Please re-run bootstrap."
                     )
 
-            if node.schema not in self.schemas:
-                raise InvalidSchemaError(
-                    f"Unknown schema name(s): {node.schema}"
-                )
+            if node.schema not in self.tree.schemas:
+                raise InvalidSchemaError(f"Unknown schema name(s): {node.schema}")
 
             # ensure all base tables have at least one primary_key
             for table in node.base_tables:
@@ -263,7 +261,7 @@ class Sync(Base, metaclass=Singleton):
         join_queries: bool = settings.JOIN_QUERIES
         self.teardown(drop_view=False)
 
-        for schema in self.schemas:
+        for schema in self.tree.schemas:
             self.create_function(schema)
             tables: t.Set = set()
             # tables with user defined foreign keys
@@ -308,7 +306,7 @@ class Sync(Base, metaclass=Singleton):
         self._checkpoint.teardown()
         self.redis.delete()
 
-        for schema in self.schemas:
+        for schema in self.tree.schemas:
             tables: t.Set = set()
             for node in self.tree.traverse_breadth_first():
                 tables |= set(
