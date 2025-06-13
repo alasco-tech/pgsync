@@ -246,7 +246,7 @@ class Sync(Base, metaclass=Singleton):
         Use the existence of the index in opensearch as a proxy to determine whether we actually have
         to bootstrap stuff.
         """
-        return self.search_client.exists(self.index)
+        return not self.search_client.exists(self.index)
 
     def setup(self) -> None:
         """Create the database triggers and replication slot."""
