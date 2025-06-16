@@ -85,6 +85,9 @@ def main(
             continue
 
         if force or sync.bootstrap_required:
+            # Create all indicies
+            sync.create_setting()
+            # Create all triggers and replication slots
             sync.setup()
             logger.info(f"Bootstrap: {sync.database}")
         else:

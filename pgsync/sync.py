@@ -103,7 +103,6 @@ class Sync(Base, metaclass=Singleton):
         self.tree: Tree = Tree(self.models, nodes=self.nodes)
         if validate:
             self.validate(repl_slots=repl_slots)
-            self.create_setting()
         if self.plugins:
             self._plugins: Plugins = Plugins("plugins", self.plugins)
         self.query_builder: QueryBuilder = QueryBuilder(verbose=verbose)
