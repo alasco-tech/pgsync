@@ -239,16 +239,14 @@ class Sync(Base, metaclass=Singleton):
             routing=self.routing,
         )
 
-    @property
-    def bootstrap_required(self) -> bool:
-        """
-        Use the existence of the index in opensearch as a proxy to determine whether we actually have
-        to bootstrap stuff.
-        """
-        return not self.search_client.exists(self.index)
-
-    def setup(self) -> None:
+    def setup(self, force: bool = False) -> None:
         """Create the database triggers and replication slot."""
+
+        if not force and self.search_client.exists(self.index):
+            logger.info(f"Index {self.index} exists. Skipping setup.")
+            return
+
+        self.create_setting()
 
         join_queries: bool = settings.JOIN_QUERIES
         self.teardown(drop_view=False)

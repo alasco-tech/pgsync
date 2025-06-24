@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 """PGSync bootstrap."""
+
 import logging
 
 import click
@@ -84,14 +85,7 @@ def main(
             sync.teardown()
             continue
 
-        if force or sync.bootstrap_required:
-            # Create all indicies
-            sync.create_setting()
-            # Create all triggers and replication slots
-            sync.setup()
-            logger.info(f"Bootstrap: {sync.database}")
-        else:
-            logger.info(f"Index {sync.index} exists. Skipping bootstrap.")
+        sync.setup(force=force)
 
 
 if __name__ == "__main__":
