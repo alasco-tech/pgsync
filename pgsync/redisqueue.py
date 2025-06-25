@@ -16,16 +16,28 @@ logger = logging.getLogger(__name__)
 class RedisQueue(object):
     """Simple Queue with Redis Backend."""
 
-    def __init__(self, name: str, namespace: str = "queue", **kwargs):
+    def __init__(
+        self,
+        name: str,
+        namespace: str = "queue",
+        *,
+        redis: t.Optional[Redis] = None,
+        **kwargs,
+    ):
         """Init Simple Queue with Redis Backend."""
         url: str = get_redis_url(**kwargs)
         self.key: str = f"{namespace}:{name}"
-        try:
+
+        if redis is not None:
+            self.__db = redis
+        else:
             self.__db: Redis = Redis.from_url(
                 url,
                 decode_components=True,
                 socket_timeout=REDIS_SOCKET_TIMEOUT,
             )
+
+        try:
             self.__db.ping()
         except ConnectionError as e:
             logger.exception(f"Redis server is not running: {e}")

@@ -1,7 +1,7 @@
 import enum
 import logging
 import os
-from typing import Protocol
+from typing import Optional, Protocol
 
 from redis import Redis
 from redis.exceptions import ConnectionError
@@ -67,16 +67,11 @@ class FileCheckpoint:
 
 
 class RedisCheckpoint:
-    def __init__(self, name: str) -> None:
-        url: str = get_redis_url()
-        namespace = settings.CHECKPOINT_REDIS_NAMESPACE
+    def __init__(
+        self, name: str, *, redis: Redis, namespace=settings.CHECKPOINT_REDIS_NAMESPACE
+    ) -> None:
         self._key = f"{namespace}:{name}"
-        self._redis = Redis.from_url(
-            url=url,
-            socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
-            decode_components=True,
-            decode_responses=True,
-        )
+        self._redis = redis
 
     def validate(self) -> None:
         try:
@@ -97,9 +92,16 @@ class RedisCheckpoint:
         self._redis.delete(self._key)
 
 
-def get_checkpoint(name: str) -> Checkpoint:
+def get_checkpoint(name: str, *, redis: Optional[Redis] = None) -> Checkpoint:
     if settings.CHECKPOINT_IMPL == CheckpointImpl.REDIS:
-        return RedisCheckpoint(name=name)
+        if redis is None:
+            redis = Redis.from_url(
+                url=get_redis_url(),
+                socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+                decode_components=True,
+                decode_responses=True,
+            )
+        return RedisCheckpoint(name, redis=redis)
     elif settings.CHECKPOINT_IMPL == CheckpointImpl.FILE:
         return FileCheckpoint(name=name)
 

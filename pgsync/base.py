@@ -172,9 +172,21 @@ class Base(object):
         "varchar",
     )
 
-    def __init__(self, database: str, verbose: bool = False, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        database: str,
+        verbose: bool = False,
+        *args,
+        engine: t.Optional[sa.engine.Engine] = None,
+        **kwargs,
+    ) -> None:
         """Initialize the base class constructor."""
-        self.__engine: sa.engine.Engine = _pg_engine(database, echo=False, **kwargs)
+
+        if engine is not None:
+            self.__engine = engine
+        else:
+            self.__engine: sa.engine.Engine = _pg_engine(database, echo=False, **kwargs)
+
         # models is a dict of f'{schema}.{table}'
         self.__models: dict = {}
         self.__metadata: dict = {}
@@ -902,6 +914,41 @@ def subtransactions(session):
     return ControlledExecution(session)
 
 
+def _pg_engine(
+    database: str,
+    user: t.Optional[str] = None,
+    host: t.Optional[str] = None,
+    password: t.Optional[str] = None,
+    port: t.Optional[int] = None,
+    echo: bool = False,
+    sslmode: t.Optional[str] = None,
+    sslrootcert: t.Optional[str] = None,
+) -> sa.engine.Engine:
+    connect_args: dict = {}
+    sslmode = sslmode or PG_SSLMODE
+    sslrootcert = sslrootcert or PG_SSLROOTCERT
+
+    if sslmode:
+        connect_args["sslmode"] = sslmode
+
+    if sslrootcert:
+        connect_args["sslrootcert"] = sslrootcert
+
+    url: str = get_postgres_url(
+        database,
+        user=user,
+        host=host,
+        password=password,
+        port=port,
+    )
+    return sa.create_engine(url, echo=echo, connect_args=connect_args)
+
+
+#
+# only for tests/examples/unrelated stuff
+#
+
+
 def pg_engine(
     database: str,
     user: t.Optional[str] = None,
@@ -962,36 +1009,6 @@ def pg_engine(
         sslmode=sslmode,
         sslrootcert=sslrootcert,
     )
-
-
-def _pg_engine(
-    database: str,
-    user: t.Optional[str] = None,
-    host: t.Optional[str] = None,
-    password: t.Optional[str] = None,
-    port: t.Optional[int] = None,
-    echo: bool = False,
-    sslmode: t.Optional[str] = None,
-    sslrootcert: t.Optional[str] = None,
-) -> sa.engine.Engine:
-    connect_args: dict = {}
-    sslmode = sslmode or PG_SSLMODE
-    sslrootcert = sslrootcert or PG_SSLROOTCERT
-
-    if sslmode:
-        connect_args["sslmode"] = sslmode
-
-    if sslrootcert:
-        connect_args["sslrootcert"] = sslrootcert
-
-    url: str = get_postgres_url(
-        database,
-        user=user,
-        host=host,
-        password=password,
-        port=port,
-    )
-    return sa.create_engine(url, echo=echo, connect_args=connect_args)
 
 
 def pg_execute(
