@@ -92,7 +92,7 @@ class SearchClient(object):
         self.__client.transport.close()
 
     def exists(self, index: str) -> bool:
-        return self.__client.indices.exists(index)
+        return self.__client.indices.exists(index=index)
 
     def teardown(self, index: str) -> None:
         """
