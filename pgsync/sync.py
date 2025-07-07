@@ -238,7 +238,7 @@ class Sync(Base, metaclass=Singleton):
                 sys.stdout.write("\n")
                 sys.stdout.flush()
 
-    def create_setting(self) -> None:
+    def setup_index(self) -> None:
         """Create Elasticsearch/OpenSearch setting and mapping if required."""
         self.search_client._create_setting(
             self.index,
@@ -249,20 +249,26 @@ class Sync(Base, metaclass=Singleton):
             routing=self.routing,
         )
 
-    def setup(self, force: bool = False) -> None:
+    def setup(
+        self,
+        *,
+        view: bool = True,
+        triggers: bool = True,
+        replication_slot: bool = True,
+        force: bool = False,
+    ) -> None:
         """Create the database triggers and replication slot."""
 
         if not force and self.search_client.exists(self.index):
             logger.info(f"Index {self.index} exists. Skipping setup.")
             return
 
-        self.create_setting()
+        self.setup_index()
 
         join_queries: bool = settings.JOIN_QUERIES
-        self.teardown(drop_view=False)
+        self.teardown(view=False, triggers=triggers, replication_slot=replication_slot)
 
         for schema in self.tree.schemas:
-            self.create_function(schema)
             tables: t.Set = set()
             # tables with user defined foreign keys
             user_defined_fkey_tables: dict = {}
@@ -289,16 +295,26 @@ class Sync(Base, metaclass=Singleton):
                 if columns:
                     user_defined_fkey_tables.setdefault(node.table, set())
                     user_defined_fkey_tables[node.table] |= set(columns)
-            if tables:
-                self.create_view(
-                    self.index, schema, tables, user_defined_fkey_tables
-                )
-                self.create_triggers(
-                    schema, tables=tables, join_queries=join_queries
-                )
-        self.create_replication_slot(self.__name)
+            if not tables:
+                continue
 
-    def teardown(self, drop_view: bool = True) -> None:
+            if view:
+                self.create_view(self.index, schema, tables, user_defined_fkey_tables)
+
+            if triggers:
+                self.create_function(schema)
+                self.create_triggers(schema, tables=tables, join_queries=join_queries)
+
+        if replication_slot:
+            self.create_replication_slot(self.__name)
+
+    def teardown(
+        self,
+        *,
+        view: bool = True,
+        triggers: bool = True,
+        replication_slot: bool = True,
+    ) -> None:
         """Drop the database triggers and replication slot."""
 
         join_queries: bool = settings.JOIN_QUERIES
@@ -306,23 +322,27 @@ class Sync(Base, metaclass=Singleton):
         self._checkpoint.teardown()
         self.redis.delete()
 
-        for schema in self.tree.schemas:
-            tables: t.Set = set()
-            for node in self.tree.traverse_breadth_first():
-                tables |= set(
-                    [through.table for through in node.relationship.throughs]
-                )
-                tables |= set([node.table])
-                # we also need to teardown the base tables
-                tables |= set(node.base_tables)
-            self.drop_triggers(
-                schema=schema, tables=tables, join_queries=join_queries
-            )
-            if drop_view:
-                self.drop_view(schema)
-                self.drop_function(schema)
+        if triggers:
+            for schema in self.tree.schemas:
+                tables: t.Set = set()
+                for node in self.tree.traverse_breadth_first():
+                    tables |= set(
+                        [through.table for through in node.relationship.throughs]
+                    )
+                    tables |= set([node.table])
+                    # we also need to teardown the base tables
+                    tables |= set(node.base_tables)
 
-        self.drop_replication_slot(self.__name)
+                self.drop_function(schema)
+                self.drop_triggers(
+                    schema=schema, tables=tables, join_queries=join_queries
+                )
+
+        if view:
+            self.drop_view(schema)
+
+        if replication_slot:
+            self.drop_replication_slot(self.__name)
 
     def get_doc_id(self, primary_keys: t.List[str], table: str) -> str:
         """
@@ -1219,6 +1239,14 @@ class Sync(Base, metaclass=Singleton):
         # for truncate, tg_op txids is None so skip setting the checkpoint
         if txids != set([None]):
             self.checkpoint: int = min(min(txids), self.txid_current) - 1
+
+    def pull_from_replication_slot(self) -> None:
+        upto_lsn: str = self.current_wal_lsn
+        upto_nchanges: int = settings.LOGICAL_SLOT_CHUNK_SIZE
+        self.logical_slot_changes(
+            upto_nchanges=upto_nchanges,
+            upto_lsn=upto_lsn,
+        )
 
     def pull(self) -> None:
         """Pull data from db."""
