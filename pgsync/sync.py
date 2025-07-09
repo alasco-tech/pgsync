@@ -252,7 +252,6 @@ class Sync(Base, metaclass=Singleton):
     def setup(
         self,
         *,
-        view: bool = True,
         triggers: bool = True,
         replication_slot: bool = True,
         force: bool = False,
@@ -266,7 +265,7 @@ class Sync(Base, metaclass=Singleton):
         self.setup_index()
 
         join_queries: bool = settings.JOIN_QUERIES
-        self.teardown(view=False, triggers=triggers, replication_slot=replication_slot)
+        self.teardown(triggers=triggers, replication_slot=replication_slot)
 
         for schema in self.tree.schemas:
             tables: t.Set = set()
@@ -298,10 +297,8 @@ class Sync(Base, metaclass=Singleton):
             if not tables:
                 continue
 
-            if view:
-                self.create_view(self.index, schema, tables, user_defined_fkey_tables)
-
             if triggers:
+                self.create_view(self.index, schema, tables, user_defined_fkey_tables)
                 self.create_function(schema)
                 self.create_triggers(schema, tables=tables, join_queries=join_queries)
 
@@ -311,7 +308,6 @@ class Sync(Base, metaclass=Singleton):
     def teardown(
         self,
         *,
-        view: bool = True,
         triggers: bool = True,
         replication_slot: bool = True,
     ) -> None:
@@ -333,13 +329,11 @@ class Sync(Base, metaclass=Singleton):
                     # we also need to teardown the base tables
                     tables |= set(node.base_tables)
 
-                self.drop_function(schema)
                 self.drop_triggers(
                     schema=schema, tables=tables, join_queries=join_queries
                 )
-
-        if view:
-            self.drop_view(schema)
+                self.drop_function(schema)
+                self.drop_view(schema)
 
         if replication_slot:
             self.drop_replication_slot(self.__name)
