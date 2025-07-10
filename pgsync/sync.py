@@ -251,23 +251,15 @@ class Sync(Base, metaclass=Singleton):
             routing=self.routing,
         )
 
-    def setup(
-        self,
-        *,
-        triggers: bool = True,
-        replication_slot: bool = True,
-        force: bool = False,
-    ) -> None:
-        """Create the database triggers and replication slot."""
+    def setup_replication_slot(self) -> None:
+        self.create_replication_slot(self.__name)
 
-        if not force and self.search_client.exists(self.index):
-            logger.info(f"Index {self.index} exists. Skipping setup.")
-            return
+    def teardown_replication_slot(self) -> None:
+        self.drop_replication_slot(self.__name)
 
-        self.setup_index()
-
+    def setup_triggers(self) -> None:
         join_queries: bool = settings.JOIN_QUERIES
-        self.teardown(triggers=triggers, replication_slot=replication_slot)
+        self.teardown()
 
         for schema in self.tree.schemas:
             tables: t.Set = set()
@@ -277,9 +269,7 @@ class Sync(Base, metaclass=Singleton):
             for node in self.tree.traverse_breadth_first():
                 if node.schema != schema:
                     continue
-                tables |= set(
-                    [through.table for through in node.relationship.throughs]
-                )
+                tables |= set([through.table for through in node.relationship.throughs])
                 tables |= set([node.table])
                 # we also need to bootstrap the base tables
                 tables |= set(node.base_tables)
@@ -299,46 +289,27 @@ class Sync(Base, metaclass=Singleton):
             if not tables:
                 continue
 
-            if triggers:
-                self.create_view(self.index, schema, tables, user_defined_fkey_tables)
-                self.create_function(schema)
-                self.create_triggers(schema, tables=tables, join_queries=join_queries)
+            self.create_view(self.index, schema, tables, user_defined_fkey_tables)
+            self.create_function(schema)
+            self.create_triggers(schema, tables=tables, join_queries=join_queries)
 
-        if replication_slot:
-            self.create_replication_slot(self.__name)
-
-    def teardown(
-        self,
-        *,
-        triggers: bool = True,
-        replication_slot: bool = True,
-    ) -> None:
-        """Drop the database triggers and replication slot."""
-
+    def teardown_triggers(self) -> None:
         join_queries: bool = settings.JOIN_QUERIES
 
         self._checkpoint.teardown()
         self.redis.delete()
 
-        if triggers:
-            for schema in self.tree.schemas:
-                tables: t.Set = set()
-                for node in self.tree.traverse_breadth_first():
-                    tables |= set(
-                        [through.table for through in node.relationship.throughs]
-                    )
-                    tables |= set([node.table])
-                    # we also need to teardown the base tables
-                    tables |= set(node.base_tables)
+        for schema in self.tree.schemas:
+            tables: t.Set = set()
+            for node in self.tree.traverse_breadth_first():
+                tables |= set([through.table for through in node.relationship.throughs])
+                tables |= set([node.table])
+                # we also need to teardown the base tables
+                tables |= set(node.base_tables)
 
-                self.drop_triggers(
-                    schema=schema, tables=tables, join_queries=join_queries
-                )
-                self.drop_function(schema)
-                self.drop_view(schema)
-
-        if replication_slot:
-            self.drop_replication_slot(self.__name)
+            self.drop_triggers(schema=schema, tables=tables, join_queries=join_queries)
+            self.drop_function(schema)
+            self.drop_view(schema)
 
     def get_doc_id(self, primary_keys: t.List[str], table: str) -> str:
         """

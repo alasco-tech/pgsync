@@ -398,15 +398,11 @@ class Base(object):
         )
 
     def create_replication_slot(self, slot_name: str) -> None:
-        """Create a replication slot.
-
-        TODO:
-        - Only create the replication slot if it does not exist
-          otherwise warn that it already exists and return
-
-        SELECT * FROM PG_REPLICATION_SLOTS
-        """
-        logger.debug(f"Creating replication slot: {slot_name}")
+        """Create a replication slot if it doesn't exist."""
+        logger.info(f"Creating replication slot: {slot_name}")
+        if self.replication_slots(slot_name):
+            logger.info(f"Replication slot already exists: {slot_name}")
+            return
         try:
             self.execute(
                 sa.select("*").select_from(
@@ -416,25 +412,27 @@ class Base(object):
                     )
                 )
             )
+            logger.info(f"Created replication slot: {slot_name}")
         except Exception as e:
             logger.exception(f"{e}")
             raise
-        logger.debug(f"Created replication slot: {slot_name}")
 
     def drop_replication_slot(self, slot_name: str) -> None:
-        """Drop a replication slot."""
-        logger.debug(f"Dropping replication slot: {slot_name}")
-        if self.replication_slots(slot_name):
-            try:
-                self.execute(
-                    sa.select("*").select_from(
-                        sa.func.PG_DROP_REPLICATION_SLOT(slot_name),
-                    )
+        """Drop a replication slot if it exists."""
+        logger.info(f"Dropping replication slot: {slot_name}")
+        if not self.replication_slots(slot_name):
+            logger.info(f"Replication slot doesn't exist: {slot_name}")
+            return
+        try:
+            self.execute(
+                sa.select("*").select_from(
+                    sa.func.PG_DROP_REPLICATION_SLOT(slot_name),
                 )
-            except Exception as e:
-                logger.exception(f"{e}")
-                raise
-        logger.debug(f"Dropped replication slot: {slot_name}")
+            )
+            logger.info(f"Dropped replication slot: {slot_name}")
+        except Exception as e:
+            logger.exception(f"{e}")
+            raise
 
     def _logical_slot_changes(
         self,
