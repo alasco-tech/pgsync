@@ -99,9 +99,11 @@ class Sync(Base, metaclass=Singleton):
             doc.get("database", self.index), verbose=verbose, engine=db_engine, **kwargs
         )
         self.search_client: SearchClient = SearchClient(client=search_client)
+
+        # This is used as a name for the replication slot, which can be at most 63 chars long
         self.__name: str = re.sub(
             "[^0-9a-zA-Z_]+", "", f"{self.database.lower()}_{self.index}"
-        )
+        )[:63]
 
         self._checkpoint = checkpoint or get_checkpoint(self.__name, redis=redis)
         self._plugins: Plugins = None
