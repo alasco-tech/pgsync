@@ -496,14 +496,6 @@ class Base(object):
             statement = statement.offset(offset)
         return statement
 
-    @property
-    def current_wal_lsn(self) -> str:
-        return self.fetchone(
-            sa.select(sa.func.MAX(sa.text("pg_current_wal_lsn"))).select_from(
-                sa.func.PG_CURRENT_WAL_LSN()
-            )
-        )[0]
-
     def logical_slot_get_changes(
         self,
         slot_name: str,
