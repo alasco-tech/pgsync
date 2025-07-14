@@ -195,7 +195,7 @@ def _get_logging_config(silent_loggers: t.Optional[str] = None):
                 "class": "logging.StreamHandler",
                 "level": env.str(
                     "CONSOLE_LOGGING_HANDLER_MIN_LEVEL",
-                    default="WARNING",
+                    default="INFO",
                 ),
                 "formatter": "simple",
             },
