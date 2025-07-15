@@ -1207,8 +1207,25 @@ class Sync(Base, metaclass=Singleton):
         if txids != set([None]):
             self.checkpoint: int = min(min(txids), self.txid_current) - 1
 
+    def get_current_wal_lsn(self) -> str:
+        # Consuming the replication slot is a three-phase operation:
+        #   1. pg_logical_peek_changes() returns the changes without consuming them;
+        #   2. the changes are processed by our code;
+        #   3. pg_logical_get_changes() returns the changes and advances the replication slot.
+        # Both `get` and `peek` "start" at the same LSN. To have them both also "end" at
+        # the same LSN, i.e to make sure we only `get` the data we `peek`d,
+        # we must provide the same value as `upto_lsn` parameter to both functions.
+        try:
+            # Try the naive option first, if we run against a master this will succeed.
+            return self.fetchone(sa.select(sa.func.PG_CURRENT_WAL_LSN()))[0]
+        except sa.exc.OperationalError:
+            # Failing that, we assume we must be running against a read replica, as
+            # `pg_current_wal_lsn()` is disallowed there. In this  case we can use the
+            # LSN of the last change the replica successfully replayed from master.
+            return self.fetchone(sa.select(sa.func.PG_LAST_WAL_REPLAY_LSN()))[0]
+
     def pull_from_replication_slot(self) -> None:
-        upto_lsn: str = self.current_wal_lsn
+        upto_lsn: str = self.get_current_wal_lsn()
         upto_nchanges: int = settings.LOGICAL_SLOT_CHUNK_SIZE
         self.logical_slot_changes(
             upto_nchanges=upto_nchanges,
@@ -1220,7 +1237,7 @@ class Sync(Base, metaclass=Singleton):
         txmin: int = self.checkpoint
         txmax: int = self.txid_current
         # this is the max lsn we should go upto
-        upto_lsn: str = self.current_wal_lsn
+        upto_lsn: str = self.get_current_wal_lsn()
         upto_nchanges: int = settings.LOGICAL_SLOT_CHUNK_SIZE
 
         logger.debug(f"pull txmin: {txmin} - txmax: {txmax}")
